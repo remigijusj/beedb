@@ -9,6 +9,10 @@ import (
 	"time"
 )
 
+type Unmarshaler interface {
+	UnmarshalDB([]byte) error
+}
+
 func getTypeName(obj interface{}) (typestr string) {
 	typ := reflect.TypeOf(obj)
 	typestr = typ.String()
@@ -70,6 +74,21 @@ func pluralizeString(str string) string {
 	return str + "s"
 }
 
+func scanViaInterface(v reflect.Value, item []byte) (err error) {
+	if v.Kind() != reflect.Ptr && v.Type().Name() != "" && v.CanAddr() {
+		v = v.Addr()
+	}
+	if v.Type().NumMethod() > 0 {
+		if u, ok := v.Interface().(Unmarshaler); ok {
+			err = u.UnmarshalDB(item)
+			return
+		}
+	}
+	err = errors.New("can't unmarshal via interface")
+	return
+}
+
+
 func scanMapIntoStruct(obj interface{}, objMap map[string][]byte) error {
 	dataStruct := reflect.Indirect(reflect.ValueOf(obj))
 	if dataStruct.Kind() != reflect.Struct {
@@ -79,6 +98,10 @@ func scanMapIntoStruct(obj interface{}, objMap map[string][]byte) error {
 	for key, data := range objMap {
 		structField := dataStruct.FieldByName(titleCasedName(key))
 		if !structField.CanSet() {
+			continue
+		}
+
+		if err := scanViaInterface(structField, data); err == nil {
 			continue
 		}
 
